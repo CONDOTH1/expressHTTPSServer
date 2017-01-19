@@ -1,68 +1,58 @@
-var fs = require('fs');
-var express = require('express');
-var bodyParser = require("body-parser");
-var https = require('https');
-var key = fs.readFileSync('./certs/server.key');
-var cert = fs.readFileSync('./certs/server.crt')
-var https_options = {
+const fs = require('fs');
+const express = require('express');
+const bodyParser = require("body-parser");
+const https = require('https');
+const key = fs.readFileSync('./certs/server.key');
+const cert = fs.readFileSync('./certs/server.crt');
+const https_options = {
     key: key,
-    cert: cert
+    cert: cert,
+    ca: cert,
+    requestCert: true,
+    rejectUnauthorized: true,
+    agent: false
 };
-var PORT = 8080;
-var HOST = 'localhost';
+const agentOptions = {
+   key: fs.readFileSync('./certs/server.key'),
+   cert: fs.readFileSync('./certs/server.crt'),
+};
+const agent = new https.Agent(agentOptions);
+const PORT = 8080;
+const HOST = 'localhost';
+const wait5000 =  ()=> new Promise((resolve, reject)=> {setTimeout(resolve, 5000)})
+
 app = express();
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-server = https.createServer(https_options, app).listen(PORT, HOST);
+let server = https.createServer(https_options, app).listen(PORT, HOST);
 console.log('HTTPS Server listening on %s:%s', HOST, PORT);
+server.on('connection', (c) => {console.log('insecure connection');});
+server.on('secureConnection', (c) =>{console.log('secure connection; client authorized: ', c.authorized);});
 
-// routes
-app.get('/iamfsi', function(req, res) {
-    console.log(`${req.method} request for ${req.url}`);
-    res.send('HEY!');
-});
-
-app.post('/iamfsi', function(req, res) {
+app.post('/iamfsi', (req, res) => {
     let message = req.headers.messages
-    // console.log(`${req.method} request for ${req.url}`);
-    console.log('This is the RFQ message from the Gateway at the FSI: ' + message);
-    res.send('HO!\n');
-    setTimeout(function(){
-      sendBackToGateway('Returned Message');
-    }, 5000)
+    console.log('This is the RFQ from the Gateway at the FSI: ' + message);
+    res.send('Recieved message, thank you, from FSI!\n');
+    wait5000().then(function(){
+      sendBackToGateway('Returned Message')
+      return wait5000()
+  })
 });
 
-var sendBackToGateway = function(message){
-
-  let agentOptions = {
-	   key: fs.readFileSync('./certs/server.key'),
-	   cert: fs.readFileSync('./certs/server.crt'),
-  };
-
-  let agent = new https.Agent(agentOptions);
-
-  var options = {
+sendBackToGateway = (message) => {
+  const request_options = {
     hostname: 'localhost',
     port: 8000,
     path: '/responseFromFSI',
     method: 'POST',
     agent: agent,
-	  ca: fs.readFileSync('./certs/server.crt'),
+    ca: fs.readFileSync('./certs/server.crt'),
     headers: {
       messages: message
     }
   };
-
-  var req = https.request(options, (res) => {
-    console.log('statusCode:', res.statusCode);
-    console.log('headers:', res.headers);
-
-    res.on('data', (d) => {
-      process.stdout.write(d);
-    });
-  });
-
+  let req = https.request(request_options, (res) => {});
   req.on('error', (e) => {
     console.error(e);
   });
